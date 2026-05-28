@@ -8,7 +8,6 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 import argparse
-from pathlib import Path
 
 import joblib
 import numpy as np
@@ -51,7 +50,7 @@ def extract_features(adapter, loader, device, real_only: bool):
         operations.extend([o for o, k in zip(batch["operation"], keep) if k])
         paths.extend([p for p, k in zip(batch["path"], keep) if k])
     if not feats:
-        raise ValueError("???????")
+        raise ValueError("no features were extracted; check manifest, split, and real_only filtering")
     return {
         "features": np.concatenate(feats, axis=0),
         "labels": np.asarray(labels, dtype=np.int64),
@@ -70,12 +69,19 @@ def main():
     parser.add_argument("--calib-split", type=str, default="train")
     parser.add_argument("--eval-split", type=str, default="test")
     parser.add_argument("--components", type=int, default=6)
-    parser.add_argument("--threshold-percentile", type=float, default=0.05)
+    parser.add_argument(
+        "--threshold-percentile",
+        type=float,
+        default=5.0,
+        help="Lower-tail percentile on real calibration likelihoods. 5.0 targets about 5%% false alarms on calibration.",
+    )
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--out-dim", type=int, default=256)
     parser.add_argument("--out", type=str, default="outputs/beyond_gmm_eval.json")
     parser.add_argument("--gmm-out", type=str, default="checkpoints/beyond_gmm.joblib")
     args = parser.parse_args()
+    if not 0.0 < args.threshold_percentile < 100.0:
+        raise ValueError("--threshold-percentile must be in the open interval (0, 100)")
 
     cfg = ExperimentConfig(batch_size=args.batch_size)
     ensure_project_dirs(cfg)
@@ -101,6 +107,7 @@ def main():
         "checkpoint": args.checkpoint,
         "components": args.components,
         "threshold_percentile": args.threshold_percentile,
+        "threshold_false_alarm_target": args.threshold_percentile / 100.0,
     }, gmm_path)
 
     result = {
@@ -109,6 +116,8 @@ def main():
         "calib_count": int(calib["features"].shape[0]),
         "calib_likelihood_mean": float(calib_likelihood.mean()),
         "calib_likelihood_std": float(calib_likelihood.std()),
+        "threshold_percentile": float(args.threshold_percentile),
+        "threshold_false_alarm_target": float(args.threshold_percentile / 100.0),
     }
 
     if args.eval_manifest:

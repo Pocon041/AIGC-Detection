@@ -74,17 +74,21 @@ def extract_cache(args, cfg: ExperimentConfig):
         operations.extend(batch["operation"])
         splits.extend(batch["split"])
 
+    label_array = np.concatenate(labels, axis=0)
     return {
         "z_f": np.concatenate(z_f_all, axis=0),
         "z_s": np.concatenate(z_s_all, axis=0),
         "z_c_proxy": np.concatenate(z_c_all, axis=0),
-        "labels": np.concatenate(labels, axis=0),
+        "labels": label_array,
+        "sample_index": np.arange(label_array.shape[0], dtype=np.int64),
         "paths": string_array(paths),
         "groups": string_array(groups),
         "generators": string_array(generators),
         "operations": string_array(operations),
         "splits": string_array(splits),
         "proxy_names": string_array(proxy_names(include_pipeline=True)),
+        "proxy_frame": f"preprocessed_tensor_{args.image_size}_imagenet_denormalized",
+        "lowlevel_projection": "none",
         "config_json": json.dumps(
             {
                 "manifest": args.manifest,
@@ -92,9 +96,11 @@ def extract_cache(args, cfg: ExperimentConfig):
                 "image_size": args.image_size,
                 "lowlevel_checkpoint": args.lowlevel_checkpoint,
                 "lowlevel_dim": args.lowlevel_dim,
+                "lowlevel_projection": "none",
                 "semantic_backbone": args.semantic_backbone,
                 "pooling": args.pooling,
                 "topk_ratio": args.topk_ratio,
+                "proxy_frame": f"preprocessed_tensor_{args.image_size}_imagenet_denormalized",
             },
             ensure_ascii=False,
         ),

@@ -49,7 +49,7 @@ class OnlineLNPLowLevelEncoder(nn.Module):
         elif self.denoise_mode == "avg":
             den = F.avg_pool2d(x01, kernel_size=3, stride=1, padding=1)
         else:
-            raise ValueError(f"鏈煡 LNP 鍦ㄧ嚎 denoise 妯″紡: {self.denoise_mode}")
+            raise ValueError(f"unknown online LNP denoise mode: {self.denoise_mode}")
         lnp = (x01 - den) * self.gain + 0.5
         lnp = lnp.clamp(0.0, 1.0)
         return lnp * 2.0 - 1.0

@@ -35,7 +35,7 @@ def read_manifest(path: str | Path, split: Optional[str] = None) -> List[Manifes
         reader = csv.DictReader(f)
         missing = [c for c in REQUIRED_COLUMNS if c not in reader.fieldnames]
         if missing:
-            raise ValueError(f"manifest 缂哄皯蹇呰鍒? {missing}")
+            raise ValueError(f"manifest is missing required columns: {missing}")
         for row in reader:
             row_split = row.get("split", "train") or "train"
             if split is not None and row_split != split:
@@ -52,7 +52,7 @@ def read_manifest(path: str | Path, split: Optional[str] = None) -> List[Manifes
             )
             items.append(item)
     if not items:
-        raise ValueError(f"manifest 娌℃湁璇诲彇鍒版牱鏈? {path}, split={split}")
+        raise ValueError(f"manifest has no samples: {path}, split={split}")
     return items
 
 
@@ -95,7 +95,7 @@ class PairedManifestDataset(Dataset):
                 pair["fake"] = item
         self.pairs = [(pid, pair["real"], pair["fake"]) for pid, pair in pairs.items() if "real" in pair and "fake" in pair]
         if not self.pairs:
-            raise ValueError("paired manifest 娌℃湁鎵惧埌瀹屾暣 real/fake pair锛岃妫€鏌?pair_id 鍜?label")
+            raise ValueError("paired manifest has no complete real/fake pairs; check pair_id and label")
         self.transform = build_image_transform(image_size=image_size, train=False)
 
     def __len__(self) -> int:

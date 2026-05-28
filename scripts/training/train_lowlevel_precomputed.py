@@ -89,16 +89,17 @@ def run_epoch(model, loader, optimizer, device, train: bool, lambda_reg: float):
         x = batch["images"].to(device, non_blocking=True)
         y = batch["labels"].to(device, non_blocking=True)
         mae_targets = batch["mae_targets"].to(device, non_blocking=True)
-        out = model(x)
-        image_logits = out["image_logits"]
-        regression = out["regression"]
-        loss_cls = F.cross_entropy(image_logits, y)
-        loss_reg = F.l1_loss(regression, mae_targets)
-        loss = loss_cls + lambda_reg * loss_reg
-        if train:
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+        with torch.set_grad_enabled(train):
+            out = model(x)
+            image_logits = out["image_logits"]
+            regression = out["regression"]
+            loss_cls = F.cross_entropy(image_logits, y)
+            loss_reg = F.l1_loss(regression, mae_targets)
+            loss = loss_cls + lambda_reg * loss_reg
+            if train:
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
         suspicious = 1.0 - torch.softmax(image_logits, dim=1)[:, 0]
         binary = (y != 0).long()
         labels_all.append(binary.detach().cpu().numpy())

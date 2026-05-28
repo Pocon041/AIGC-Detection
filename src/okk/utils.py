@@ -1,4 +1,5 @@
 ﻿import json
+import math
 import os
 import random
 from pathlib import Path
@@ -34,7 +35,21 @@ def save_json(data: Dict[str, Any], path: str | Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        json.dump(_json_safe(data), f, ensure_ascii=False, indent=2, allow_nan=False)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, np.ndarray):
+        return _json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return _json_safe(value.item())
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    return value
 
 
 def load_json(path: str | Path) -> Dict[str, Any]:

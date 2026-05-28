@@ -141,12 +141,14 @@ def best_balanced_threshold(labels: np.ndarray, scores: np.ndarray) -> tuple[flo
     thresholds = np.unique(scores)
     if len(thresholds) > 2000:
         thresholds = np.quantile(scores, np.linspace(0.0, 1.0, 2000))
-    best_balanced = -1.0
-    best_thr = float(thresholds[0])
+    best_balanced = float("nan")
+    best_thr = float("nan")
     for thr in thresholds:
         metrics = operating_metrics(labels, scores, float(thr))
         value = metrics["balanced_acc"]
-        if value > best_balanced:
+        if not np.isfinite(value):
+            continue
+        if not np.isfinite(best_balanced) or value > best_balanced:
             best_balanced = float(value)
             best_thr = float(thr)
     return best_balanced, best_thr
@@ -162,7 +164,15 @@ def compute_binary_metrics(labels, suspicious_scores) -> MetricResult:
     ap = _safe_ap(labels, scores)
     acc, thr = best_acc_threshold(labels, scores)
     balanced_acc, balanced_thr = best_balanced_threshold(labels, scores)
-    best_balanced_ops = operating_metrics(labels, scores, balanced_thr)
+    if np.isfinite(balanced_thr):
+        best_balanced_ops = operating_metrics(labels, scores, balanced_thr)
+    else:
+        best_balanced_ops = {
+            "precision": float("nan"),
+            "recall": float("nan"),
+            "false_alarm": float("nan"),
+            "f1": float("nan"),
+        }
     thr1, tpr1, _ = threshold_at_fpr(labels, scores, 0.01)
     thr5, tpr5, _ = threshold_at_fpr(labels, scores, 0.05)
     return MetricResult(

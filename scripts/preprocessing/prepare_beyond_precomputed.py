@@ -82,7 +82,7 @@ def ddim_denoise(unet, scheduler, latents: torch.Tensor, noise_level: int, num_s
     scheduler.set_timesteps(num_steps, device=device)
     timesteps = scheduler.timesteps
     if noise_level < 1 or noise_level >= len(timesteps):
-        raise ValueError(f"noise_level ???? [1, {len(timesteps) - 1}]")
+        raise ValueError(f"noise_level must be in [1, {len(timesteps) - 1}]")
     start_index = len(timesteps) - noise_level
     start_t = timesteps[start_index]
     noise = torch.randn_like(latents)

@@ -35,7 +35,7 @@ class LNPResNetExtractor(nn.Module):
             base = resnet34(weights=None)
             backbone_dim = 512
         else:
-            raise ValueError(f"涓嶆敮鎸佺殑 LNP ResNet: {arch}")
+            raise ValueError(f"unsupported LNP ResNet: {arch}")
         base.conv1 = nn.Conv2d(in_channels, 64, kernel_size=7, stride=2, padding=3, bias=False)
         self.stem = nn.Sequential(base.conv1, base.bn1, base.relu, base.maxpool)
         self.layer1 = base.layer1

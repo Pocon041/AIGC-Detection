@@ -19,7 +19,7 @@ from okk.condition_encoder import HybridConditionEncoder, LowFrequencyConditionE
 from okk.conditional_detector import ConditionalGaussianDetector, ConditionalResidualDetector, PatchScoreAggregator
 from okk.config import ExperimentConfig, ensure_project_dirs
 from okk.dataset import PairedManifestDataset
-from okk.losses import pair_ranking_loss, patch_bce_loss
+from okk.losses import cross_covariance_penalty, pair_ranking_loss, patch_bce_loss
 from okk.lowlevel_encoder import BeyondPretextLowLevelEncoder, OnlineLNPLowLevelEncoder
 from okk.metrics import compute_binary_metrics, format_binary_metrics
 from okk.utils import configure_torch, get_device, save_json, set_seed
@@ -31,19 +31,19 @@ def build_condition_encoder(kind: str, cfg: ExperimentConfig, out_dim: int):
     if kind == "hybrid":
         enc = HybridConditionEncoder(cfg.backbone_name, pretrained=True, dino_dim=out_dim, low_dim=out_dim // 2)
         return enc, enc.out_dim
-    raise ValueError(f"?? condition encoder: {kind}")
+    raise ValueError(f"unknown condition encoder: {kind}")
 
 
 def build_residual_encoder(kind: str, cfg: ExperimentConfig, out_dim: int, lnp_checkpoint: str = "", beyond_checkpoint: str = ""):
     if kind == "lnp":
         if not lnp_checkpoint:
-            raise ValueError("--residual lnp ???? --lnp-checkpoint")
+            raise ValueError("--residual lnp requires --lnp-checkpoint")
         return OnlineLNPLowLevelEncoder(lnp_checkpoint, feature_dim=out_dim, out_dim=out_dim), out_dim
     if kind == "beyond":
         if not beyond_checkpoint:
-            raise ValueError("--residual beyond ???? --beyond-checkpoint")
+            raise ValueError("--residual beyond requires --beyond-checkpoint")
         return BeyondPretextLowLevelEncoder(beyond_checkpoint, feature_dim=out_dim, out_dim=out_dim), out_dim
-    raise ValueError(f"?? residual encoder: {kind}")
+    raise ValueError(f"unknown residual encoder: {kind}")
 
 
 def build_detector(kind: str, c_dim: int, r_dim: int, cfg: ExperimentConfig):
@@ -62,7 +62,21 @@ def forward_scores(c_encoder, r_encoder, detector, aggregator, image):
     return patch_scores, image_scores
 
 
-def run_epoch(c_encoder, r_encoder, detector, aggregator, loader, optimizer, device, cfg, train: bool, lambda_nll: float, lambda_rank: float, lambda_patch: float):
+def run_epoch(
+    c_encoder,
+    r_encoder,
+    detector,
+    aggregator,
+    loader,
+    optimizer,
+    device,
+    cfg,
+    train: bool,
+    lambda_nll: float,
+    lambda_rank: float,
+    lambda_patch: float,
+    lambda_decor: float,
+):
     c_encoder.train(train)
     r_encoder.train(train)
     detector.train(train)
@@ -72,37 +86,46 @@ def run_epoch(c_encoder, r_encoder, detector, aggregator, loader, optimizer, dev
     rank_losses = []
     patch_losses = []
     nll_losses = []
+    decor_losses = []
     desc = "train_cond" if train else "eval_cond"
     for batch in tqdm(loader, desc=desc):
         real = batch["real_image"].to(device, non_blocking=True)
         fake = batch["fake_image"].to(device, non_blocking=True)
-        real_residual = r_encoder(real)
-        fake_residual = r_encoder(fake)
-        real_condition = c_encoder(real, target_tokens=real_residual.shape[1])
-        fake_condition = c_encoder(fake, target_tokens=fake_residual.shape[1])
-        real_patch = detector(real_condition, real_residual)
-        fake_self_patch = detector(fake_condition, fake_residual)
-        fake_anchor_patch = detector(real_condition, fake_residual)
-        real_img = aggregator(real_patch)
-        fake_img = aggregator(fake_self_patch)
-        loss_rank = (
-            pair_ranking_loss(real_patch, fake_anchor_patch, margin=cfg.margin)
-            + pair_ranking_loss(real_patch, fake_self_patch, margin=cfg.margin)
-        )
-        loss_patch = patch_bce_loss(real_patch, fake_self_patch) + patch_bce_loss(real_patch, fake_anchor_patch)
-        if hasattr(detector, "nll"):
-            loss_nll = -real_patch.mean()
-        else:
-            loss_nll = torch.zeros((), device=device)
-        loss = lambda_rank * loss_rank + lambda_patch * loss_patch + lambda_nll * loss_nll
-        if train:
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+        with torch.set_grad_enabled(train):
+            real_residual = r_encoder(real)
+            fake_residual = r_encoder(fake)
+            real_condition = c_encoder(real, target_tokens=real_residual.shape[1])
+            fake_condition = c_encoder(fake, target_tokens=fake_residual.shape[1])
+            real_patch = detector(real_condition, real_residual)
+            fake_self_patch = detector(fake_condition, fake_residual)
+            fake_anchor_patch = detector(real_condition, fake_residual)
+            real_img = aggregator(real_patch)
+            fake_img = aggregator(fake_self_patch)
+            loss_rank = (
+                pair_ranking_loss(real_patch, fake_anchor_patch, margin=cfg.margin)
+                + pair_ranking_loss(real_patch, fake_self_patch, margin=cfg.margin)
+            )
+            loss_patch = patch_bce_loss(real_patch, fake_self_patch) + patch_bce_loss(real_patch, fake_anchor_patch)
+            if hasattr(detector, "nll"):
+                loss_nll = -real_patch.mean()
+            else:
+                loss_nll = torch.zeros((), device=device)
+            if lambda_decor > 0.0:
+                decor_condition = torch.cat([real_condition, fake_condition], dim=0)
+                decor_residual = torch.cat([real_residual, fake_residual], dim=0).detach()
+                loss_decor = cross_covariance_penalty(decor_condition, decor_residual)
+            else:
+                loss_decor = torch.zeros((), device=device)
+            loss = lambda_rank * loss_rank + lambda_patch * loss_patch + lambda_nll * loss_nll + lambda_decor * loss_decor
+            if train:
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
         losses.append(float(loss.detach().cpu()))
         rank_losses.append(float(loss_rank.detach().cpu()))
         patch_losses.append(float(loss_patch.detach().cpu()))
         nll_losses.append(float(loss_nll.detach().cpu()))
+        decor_losses.append(float(loss_decor.detach().cpu()))
         real_suspicious = (-real_img).detach().cpu().numpy()
         fake_suspicious = (-fake_img).detach().cpu().numpy()
         labels_all.append(np.concatenate([np.zeros_like(real_suspicious), np.ones_like(fake_suspicious)]))
@@ -114,6 +137,7 @@ def run_epoch(c_encoder, r_encoder, detector, aggregator, loader, optimizer, dev
     metrics["loss_rank"] = float(np.mean(rank_losses))
     metrics["loss_patch"] = float(np.mean(patch_losses))
     metrics["loss_nll"] = float(np.mean(nll_losses))
+    metrics["loss_decor"] = float(np.mean(decor_losses))
     return metrics
 
 
@@ -136,6 +160,7 @@ def main():
     parser.add_argument("--lambda-nll", type=float, default=1.0)
     parser.add_argument("--lambda-rank", type=float, default=1.0)
     parser.add_argument("--lambda-patch", type=float, default=0.1)
+    parser.add_argument("--lambda-decor", type=float, default=0.0)
     parser.add_argument("--out", type=str, default="checkpoints/conditional_best.pth")
     args = parser.parse_args()
 
@@ -168,8 +193,36 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     history = []
     for epoch in range(1, args.epochs + 1):
-        train_metrics = run_epoch(c_encoder, r_encoder, detector, aggregator, train_loader, optimizer, device, cfg, train=True, lambda_nll=args.lambda_nll, lambda_rank=args.lambda_rank, lambda_patch=args.lambda_patch)
-        val_metrics = run_epoch(c_encoder, r_encoder, detector, aggregator, val_loader, optimizer, device, cfg, train=False, lambda_nll=args.lambda_nll, lambda_rank=args.lambda_rank, lambda_patch=args.lambda_patch)
+        train_metrics = run_epoch(
+            c_encoder,
+            r_encoder,
+            detector,
+            aggregator,
+            train_loader,
+            optimizer,
+            device,
+            cfg,
+            train=True,
+            lambda_nll=args.lambda_nll,
+            lambda_rank=args.lambda_rank,
+            lambda_patch=args.lambda_patch,
+            lambda_decor=args.lambda_decor,
+        )
+        val_metrics = run_epoch(
+            c_encoder,
+            r_encoder,
+            detector,
+            aggregator,
+            val_loader,
+            optimizer,
+            device,
+            cfg,
+            train=False,
+            lambda_nll=args.lambda_nll,
+            lambda_rank=args.lambda_rank,
+            lambda_patch=args.lambda_patch,
+            lambda_decor=args.lambda_decor,
+        )
         row = {"epoch": epoch, "train": train_metrics, "val": val_metrics}
         history.append(row)
         print(f"epoch {epoch}")
@@ -177,7 +230,8 @@ def main():
         print(format_binary_metrics("val", val_metrics))
         print(
             f"loss train={train_metrics['loss']:.4f} val={val_metrics['loss']:.4f} | "
-            f"rank={val_metrics['loss_rank']:.4f} patch={val_metrics['loss_patch']:.4f} nll={val_metrics['loss_nll']:.4f}"
+            f"rank={val_metrics['loss_rank']:.4f} patch={val_metrics['loss_patch']:.4f} "
+            f"nll={val_metrics['loss_nll']:.4f} decor={val_metrics['loss_decor']:.4f}"
         )
         score = val_metrics["auroc"]
         if score > best:
@@ -190,6 +244,7 @@ def main():
                 "lambda_nll": args.lambda_nll,
                 "lambda_rank": args.lambda_rank,
                 "lambda_patch": args.lambda_patch,
+                "lambda_decor": args.lambda_decor,
                 "condition_kind": args.condition,
                 "residual_kind": args.residual,
                 "lnp_checkpoint": args.lnp_checkpoint,
@@ -204,7 +259,7 @@ def main():
                 "best_val": val_metrics,
             }, out_path)
             save_json({"history": history, "best": row}, out_path.with_suffix(".json"))
-    print(f"?? val AUROC: {best:.6f}, checkpoint: {out_path}")
+    print(f"best val AUROC: {best:.6f}, checkpoint: {out_path}")
 
 
 if __name__ == "__main__":

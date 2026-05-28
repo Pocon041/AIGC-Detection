@@ -14,10 +14,12 @@ from sklearn.neighbors import NearestNeighbors
 
 from okk.ccfled import (
     DEFAULT_CONDITION_PROXY_NAMES,
+    build_weighted_condition_matrix,
+    condition_blocks_from_cache,
     diagonal_global_energy,
     diagonal_local_energy,
     parse_name_list,
-    select_columns,
+    remove_self_neighbors,
     standardize_from_bank,
 )
 from okk.config import ExperimentConfig, ensure_project_dirs
@@ -26,7 +28,10 @@ from okk.utils import save_json
 
 
 def parse_k_values(value: str) -> list[int]:
-    return sorted({int(item.strip()) for item in value.split(",") if item.strip()})
+    values = sorted({int(item.strip()) for item in value.split(",") if item.strip()})
+    if not values or any(k <= 0 for k in values):
+        raise ValueError(f"k values must be positive integers: {value}")
+    return values
 
 
 def split_mask(splits: np.ndarray, value: str) -> np.ndarray:
@@ -36,22 +41,13 @@ def split_mask(splits: np.ndarray, value: str) -> np.ndarray:
     return np.asarray([split in allowed for split in splits], dtype=bool)
 
 
-def condition_matrix(data, condition: str, proxy_columns: list[str]) -> tuple[np.ndarray, str]:
-    parts = []
-    label = condition
-    if condition in {"semantic", "semantic_proxy"}:
-        parts.append(data["z_s"].astype(np.float64))
-    if condition in {"proxy", "semantic_proxy"}:
-        proxy = select_columns(
-            data["z_c_proxy"].astype(np.float64),
-            [str(x) for x in data["proxy_names"].tolist()],
-            proxy_columns,
-        )
-        parts.append(proxy)
-        label = f"{condition}:{','.join(proxy_columns)}"
-    if not parts:
-        raise ValueError(f"unknown local condition: {condition}")
-    return np.concatenate(parts, axis=1), label
+def scalar_string(data, key: str, default: str) -> str:
+    if key not in data.files:
+        return default
+    value = data[key]
+    if getattr(value, "shape", None) == ():
+        return str(value.item())
+    return str(value)
 
 
 def neighbor_diagnostics(indices: np.ndarray, distances: np.ndarray, bank_meta: dict, eval_meta: dict) -> dict:
@@ -87,8 +83,13 @@ def main():
     parser.add_argument("--proxy-columns", type=str, default="default")
     parser.add_argument("--k-values", type=str, default="8,16,32,64")
     parser.add_argument("--shrinkage", type=float, default=0.1)
+    parser.add_argument("--semantic-weight", type=float, default=1.0)
+    parser.add_argument("--proxy-weight", type=float, default=1.0)
+    parser.add_argument("--allow-self-neighbor", action="store_true")
     parser.add_argument("--out", type=str, default="outputs/ccfled_local_prior_eval.json")
     args = parser.parse_args()
+    if args.semantic_weight <= 0.0 or args.proxy_weight <= 0.0:
+        raise ValueError("--semantic-weight and --proxy-weight must be positive")
 
     cfg = ExperimentConfig()
     ensure_project_dirs(cfg)
@@ -135,7 +136,17 @@ def main():
 
     conditions = [item.strip() for item in args.conditions.split(",") if item.strip()]
     k_values = parse_k_values(args.k_values)
-    max_k = min(max(k_values), int(bank_mask.sum()))
+    bank_positions = np.flatnonzero(bank_mask)
+    eval_positions = np.flatnonzero(eval_mask)
+    has_overlap = bool(np.isin(eval_positions, bank_positions).any())
+    exclude_self_neighbor = has_overlap and not args.allow_self_neighbor
+    available_neighbors = int(bank_mask.sum()) - (1 if exclude_self_neighbor else 0)
+    if available_neighbors <= 0:
+        raise ValueError("memory bank has no usable non-self neighbors")
+    max_k = min(max(k_values), available_neighbors)
+    effective_k_values = sorted({min(k, max_k) for k in k_values})
+    query_k = max_k + 1 if exclude_self_neighbor else max_k
+    query_k = min(query_k, int(bank_mask.sum()))
     bank_meta = {
         "groups": groups[bank_mask],
         "generators": generators[bank_mask],
@@ -148,14 +159,27 @@ def main():
     }
 
     for condition in conditions:
-        matrix, label = condition_matrix(data, condition, proxy_columns)
-        condition_std, _, _ = standardize_from_bank(matrix[bank_mask], matrix)
+        blocks, label = condition_blocks_from_cache(data, condition, proxy_columns)
+        condition_std, block_info = build_weighted_condition_matrix(
+            blocks=blocks,
+            bank_mask=bank_mask,
+            semantic_weight=args.semantic_weight,
+            proxy_weight=args.proxy_weight,
+        )
         bank_condition = condition_std[bank_mask]
         eval_condition = condition_std[eval_mask]
-        knn = NearestNeighbors(n_neighbors=max_k, metric="euclidean")
+        knn = NearestNeighbors(n_neighbors=query_k, metric="euclidean")
         knn.fit(bank_condition)
         distances, indices = knn.kneighbors(eval_condition, return_distance=True)
-        for k in k_values:
+        if exclude_self_neighbor:
+            indices, distances = remove_self_neighbors(
+                indices=indices,
+                distances=distances,
+                bank_positions=bank_positions,
+                eval_positions=eval_positions,
+                max_k=max_k,
+            )
+        for k in effective_k_values:
             k_eff = min(k, max_k)
             local_scores = diagonal_local_energy(
                 bank_z=bank_z,
@@ -170,6 +194,7 @@ def main():
                 "condition": label,
                 "k": int(k_eff),
                 "shrinkage": float(args.shrinkage),
+                "condition_blocks": block_info,
                 "neighbor_diagnostics": diagnostics,
                 **score_result,
             }
@@ -183,7 +208,20 @@ def main():
         "bank_real_only": not args.allow_fake_bank,
         "bank_count": int(bank_mask.sum()),
         "eval_count": int(eval_mask.sum()),
+        "requested_k_values": k_values,
+        "effective_k_values": effective_k_values,
         "proxy_columns": proxy_columns,
+        "proxy_frame": scalar_string(data, "proxy_frame", "legacy_unknown"),
+        "condition_distance": {
+            "semantic_weight": float(args.semantic_weight),
+            "proxy_weight": float(args.proxy_weight),
+            "block_normalization": "each standardized block is scaled by weight / sqrt(dim)",
+        },
+        "self_neighbor_policy": {
+            "bank_eval_overlap": bool(has_overlap),
+            "excluded_self_neighbors": bool(exclude_self_neighbor),
+            "allow_self_neighbor": bool(args.allow_self_neighbor),
+        },
         "zf_standardization": {
             "mean_shape": list(zf_mean.shape),
             "std_shape": list(zf_std.shape),

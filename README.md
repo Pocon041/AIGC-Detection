@@ -31,7 +31,7 @@ Phase 1 只回答一个核心问题：
 
 > 在真实图像库中检索语义/结构代理变量可比的真实锚点后，局部 real prior 是否优于全局 real prior？
 
-这里的 `z_c` 是 **audited proxy**，不是视觉复杂度真值。`edge density`、`spectral entropy`、`patch variance entropy` 等只作为操作性代理变量；分辨率、JPEG 量化、文件格式等 pipeline 变量会被缓存用于混杂审计，但默认不参与 local prior 条件化。
+这里的 `z_c` 是 **audited proxy**，不是视觉复杂度真值。`edge density`、`spectral entropy`、`patch variance entropy` 等只作为操作性代理变量；分辨率、JPEG 量化、文件格式等 pipeline 变量会被缓存用于混杂审计，但默认不参与 local prior 条件化。当前 structural proxy 基于送入模型的预处理图像计算，cache 中会记录 `proxy_frame`，论文表述时不要把它写成原图复杂度。
 
 一键示例：
 
@@ -53,6 +53,7 @@ python scripts/preprocessing/cache_ccfled_features.py \
 
 python scripts/analysis/audit_complexity_proxies.py \
   --cache cache/ccfled_dda_coco.npz \
+  --audit-split train \
   --out outputs/ccfled_proxy_audit.json
 
 python scripts/evaluation/evaluate_local_prior.py \
@@ -60,8 +61,23 @@ python scripts/evaluation/evaluate_local_prior.py \
   --bank-split train \
   --eval-split val \
   --k-values 8,16,32,64 \
+  --semantic-weight 1.0 \
+  --proxy-weight 1.0 \
   --out outputs/ccfled_local_prior_val.json
+
+python scripts/evaluation/fit_feature_scorer.py \
+  --cache cache/ccfled_dda_coco.npz \
+  --scorer local_semantic_proxy \
+  --bank-split train \
+  --eval-split val \
+  --k 32 \
+  --model-out checkpoints/feature_scorer_local_semantic_proxy.joblib \
+  --out outputs/feature_scorer_local_semantic_proxy_val.json
 ```
+
+`semantic_proxy` 条件距离采用分块标准化：语义块和 proxy 块分别用 memory bank 统计量标准化，再按 `weight / sqrt(dim)` 缩放，避免高维语义向量天然压过低维 proxy。评估脚本默认在 bank 与 eval 有重叠时排除自邻居，只有做诊断复现实验时才建议显式传入 `--allow-self-neighbor`。
+
+主实验默认采用“先缓存特征，再拟合 scorer，再评估”的流程。`fit_feature_scorer.py` 是统一入口，支持 `global_diag`、`global_gmm`、`local_semantic`、`local_proxy` 和 `local_semantic_proxy`；旧的 `fit_beyond_gmm.py` 只保留为 manifest 直跑的 legacy baseline。
 
 ## 主要脚本
 
@@ -69,8 +85,9 @@ python scripts/evaluation/evaluate_local_prior.py \
 scripts/preprocessing/cache_ccfled_features.py   # 缓存 z_f / z_s / z_c_proxy
 scripts/analysis/audit_complexity_proxies.py     # 审计 proxy 与 label / generator / pipeline 的混杂
 scripts/evaluation/evaluate_local_prior.py       # 比较 global prior 与 local comparable prior
+scripts/evaluation/fit_feature_scorer.py         # 基于 feature cache 拟合 global/local scorer
 scripts/training/train_lowlevel_precomputed.py   # 训练 low-level pretext 主干
-scripts/evaluation/fit_beyond_gmm.py             # 旧版 global GMM baseline
+scripts/evaluation/fit_beyond_gmm.py             # 旧版 manifest 直跑 global GMM baseline
 scripts/training/train_conditional.py            # 旧版 conditional detector baseline
 ```
 

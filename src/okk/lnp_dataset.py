@@ -34,7 +34,7 @@ def read_lnp_manifest(path: str | Path, split: Optional[str] = None) -> List[LNP
                 split=row_split,
             ))
     if not items:
-        raise ValueError(f"LNP manifest 娌℃湁鏍锋湰: {path}, split={split}")
+        raise ValueError(f"LNP manifest has no samples: {path}, split={split}")
     return items
 
 

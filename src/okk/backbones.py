@@ -20,7 +20,7 @@ class TimmPatchBackbone(nn.Module):
         try:
             import timm
         except ImportError as exc:
-            raise ImportError("闇€瑕佸畨瑁?timm: pip install timm") from exc
+            raise ImportError("timm is required: pip install timm") from exc
         self.model_name = model_name
         create_kwargs = {"pretrained": pretrained, "num_classes": 0}
         try:
@@ -35,7 +35,7 @@ class TimmPatchBackbone(nn.Module):
             p.requires_grad_(False)
         self.feature_dim = getattr(self.model, "num_features", None)
         if self.feature_dim is None:
-            raise ValueError(f"鏃犳硶浠庢ā鍨嬭鍙?num_features: {model_name}")
+            raise ValueError(f"unable to read num_features from model: {model_name}")
 
     def train(self, mode: bool = True):
         super().train(False)
@@ -65,7 +65,7 @@ class TimmPatchBackbone(nn.Module):
                     patches = value.flatten(2).transpose(1, 2)
                     cls = patches.mean(dim=1)
                 else:
-                    raise ValueError("鏃犳硶瑙ｆ瀽 timm dict feature")
+                    raise ValueError("unable to parse timm dict feature")
         elif torch.is_tensor(feat):
             if feat.dim() == 3:
                 cls = feat[:, 0]
@@ -77,9 +77,9 @@ class TimmPatchBackbone(nn.Module):
                 cls = feat
                 patches = feat.unsqueeze(1)
             else:
-                raise ValueError(f"鏈煡 feature 缁村害: {feat.shape}")
+                raise ValueError(f"unknown feature shape: {feat.shape}")
         else:
-            raise ValueError(f"鏈煡 feature 绫诲瀷: {type(feat)}")
+            raise ValueError(f"unknown feature type: {type(feat)}")
         grid = infer_grid_size(patches.shape[1])
         return BackboneOutput(cls=cls, patches=patches, grid_size=grid)
 

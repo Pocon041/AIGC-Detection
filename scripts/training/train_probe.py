@@ -33,12 +33,13 @@ def run_epoch(model, extractor, loader, optimizer, device, train: bool):
         y = batch["label"].float().to(device, non_blocking=True)
         with torch.no_grad():
             feat = extractor(x)["image_features"]
-        logits = model(feat)
-        loss = F.binary_cross_entropy_with_logits(logits, y)
-        if train:
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+        with torch.set_grad_enabled(train):
+            logits = model(feat)
+            loss = F.binary_cross_entropy_with_logits(logits, y)
+            if train:
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
         losses.append(float(loss.detach().cpu()))
         labels_all.append(y.detach().cpu().numpy())
         scores_all.append(torch.sigmoid(logits).detach().cpu().numpy())
@@ -101,7 +102,7 @@ def main():
                 "best_val": val_metrics,
             }, out_path)
             save_json({"history": history, "best": row}, out_path.with_suffix(".json"))
-    print(f"?? val AUROC: {best:.6f}, checkpoint: {out_path}")
+    print(f"best val AUROC: {best:.6f}, checkpoint: {out_path}")
 
 
 if __name__ == "__main__":

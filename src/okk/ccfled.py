@@ -163,6 +163,75 @@ def select_columns(values: np.ndarray, names: Sequence[str], selected: Sequence[
     return values[:, [index[name] for name in selected]]
 
 
+def condition_blocks_from_cache(data, condition: str, proxy_columns: Sequence[str]) -> tuple[list[tuple[str, np.ndarray]], str]:
+    blocks = []
+    labels = []
+    if condition in {"semantic", "semantic_proxy"}:
+        blocks.append(("semantic", data["z_s"].astype(np.float64)))
+        labels.append("semantic")
+    if condition in {"proxy", "semantic_proxy"}:
+        proxy = select_columns(
+            data["z_c_proxy"].astype(np.float64),
+            [str(x) for x in data["proxy_names"].tolist()],
+            proxy_columns,
+        )
+        blocks.append(("proxy", proxy))
+        labels.append(f"proxy:{','.join(proxy_columns)}")
+    if not blocks:
+        raise ValueError(f"unknown local condition: {condition}")
+    return blocks, "+".join(labels)
+
+
+def build_weighted_condition_matrix(
+    blocks: Sequence[tuple[str, np.ndarray]],
+    bank_mask: np.ndarray,
+    semantic_weight: float = 1.0,
+    proxy_weight: float = 1.0,
+) -> tuple[np.ndarray, dict]:
+    weights = {
+        "semantic": float(semantic_weight),
+        "proxy": float(proxy_weight),
+    }
+    parts = []
+    info = {}
+    for name, values in blocks:
+        if name not in weights:
+            raise ValueError(f"unknown condition block: {name}")
+        standardized, _, _ = standardize_from_bank(values[bank_mask], values)
+        dim = int(standardized.shape[1])
+        block_scale = weights[name] / math.sqrt(max(dim, 1))
+        parts.append(standardized * block_scale)
+        info[name] = {
+            "dim": dim,
+            "weight": weights[name],
+            "scale": float(block_scale),
+        }
+    return np.concatenate(parts, axis=1), info
+
+
+def remove_self_neighbors(
+    indices: np.ndarray,
+    distances: np.ndarray,
+    bank_positions: np.ndarray,
+    eval_positions: np.ndarray,
+    max_k: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    clean_indices = np.empty((indices.shape[0], max_k), dtype=indices.dtype)
+    clean_distances = np.empty((distances.shape[0], max_k), dtype=distances.dtype)
+    for row in range(indices.shape[0]):
+        keep = bank_positions[indices[row]] != eval_positions[row]
+        kept_indices = indices[row][keep]
+        kept_distances = distances[row][keep]
+        if kept_indices.shape[0] < max_k:
+            raise ValueError(
+                "not enough non-self neighbors; reduce k, use a disjoint eval split, "
+                "or pass --allow-self-neighbor for diagnostics only"
+            )
+        clean_indices[row] = kept_indices[:max_k]
+        clean_distances[row] = kept_distances[:max_k]
+    return clean_indices, clean_distances
+
+
 def standardize_from_bank(bank: np.ndarray, values: np.ndarray, eps: float = 1e-6) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     mean = bank.mean(axis=0, keepdims=True)
     std = bank.std(axis=0, keepdims=True)
@@ -228,4 +297,4 @@ def eta_squared(values: np.ndarray, groups: Iterable[str]) -> float:
 
 
 def string_array(values: Sequence[str]) -> np.ndarray:
-    return np.asarray([str(value) for value in values], dtype=object)
+    return np.asarray([str(value) for value in values], dtype=np.str_)

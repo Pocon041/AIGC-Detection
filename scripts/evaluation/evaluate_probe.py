@@ -73,7 +73,7 @@ def main():
 
     labels, scores, groups, generators, operations, paths = evaluate(model, extractor, loader, device)
     result = {
-        "score_direction": "suspicious score 瓒婇珮瓒婂彲鐤戯紝label=1 琛ㄧず fake",
+        "score_direction": "higher suspicious score means more likely fake; label=1 means fake",
         "overall": compute_binary_metrics(labels, scores).to_dict(),
         "by_group": grouped_metrics(labels, scores, groups),
         "by_generator_vs_real": one_vs_real_grouped_metrics(labels, scores, generators),
@@ -85,7 +85,7 @@ def main():
     print(format_binary_metrics("overall", result["overall"]))
     print(format_grouped_metrics("by_generator_vs_real", result["by_generator_vs_real"]))
     print(format_grouped_metrics("by_operation_vs_real", result["by_operation_vs_real"]))
-    print(f"淇濆瓨璇勪及缁撴灉: {out}")
+    print(f"saved probe evaluation: {out}")
 
 
 if __name__ == "__main__":

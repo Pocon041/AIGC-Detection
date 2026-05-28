@@ -29,19 +29,19 @@ def build_condition_encoder(kind: str, cfg: ExperimentConfig, out_dim: int):
     if kind == "hybrid":
         enc = HybridConditionEncoder(cfg.backbone_name, pretrained=True, dino_dim=out_dim, low_dim=out_dim // 2)
         return enc, enc.out_dim
-    raise ValueError(f"?? condition encoder: {kind}")
+    raise ValueError(f"unknown condition encoder: {kind}")
 
 
 def build_residual_encoder(kind: str, cfg: ExperimentConfig, out_dim: int, lnp_checkpoint: str = "", beyond_checkpoint: str = ""):
     if kind == "lnp":
         if not lnp_checkpoint:
-            raise ValueError("checkpoint ??? lnp_checkpoint")
+            raise ValueError("missing lnp_checkpoint")
         return OnlineLNPLowLevelEncoder(lnp_checkpoint, feature_dim=out_dim, out_dim=out_dim), out_dim
     if kind == "beyond":
         if not beyond_checkpoint:
-            raise ValueError("checkpoint ??? beyond_checkpoint")
+            raise ValueError("missing beyond_checkpoint")
         return BeyondPretextLowLevelEncoder(beyond_checkpoint, feature_dim=out_dim, out_dim=out_dim), out_dim
-    raise ValueError(f"?? residual encoder: {kind}")
+    raise ValueError(f"unknown residual encoder: {kind}")
 
 
 def build_detector(kind: str, c_dim: int, r_dim: int, cfg: ExperimentConfig):
@@ -125,7 +125,7 @@ def main():
 
     labels, scores, realness, groups, generators, operations, paths = evaluate(c_encoder, r_encoder, detector, aggregator, loader, device)
     result = {
-        "score_direction": "suspicious score = -realness_score???????label=1 ?? fake",
+        "score_direction": "suspicious score = -realness_score; label=1 means fake",
         "detector_kind": ckpt.get("detector_kind", "mlp"),
         "overall": compute_binary_metrics(labels, scores).to_dict(),
         "by_group": grouped_metrics(labels, scores, groups),
@@ -138,7 +138,7 @@ def main():
     print(format_binary_metrics("overall", result["overall"]))
     print(format_grouped_metrics("by_generator_vs_real", result["by_generator_vs_real"]))
     print(format_grouped_metrics("by_operation_vs_real", result["by_operation_vs_real"]))
-    print(f"淇濆瓨璇勪及缁撴灉: {out}")
+    print(f"saved conditional evaluation: {out}")
 
 
 if __name__ == "__main__":

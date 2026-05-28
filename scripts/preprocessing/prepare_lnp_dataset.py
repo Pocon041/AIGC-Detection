@@ -39,7 +39,7 @@ def classical_denoise(path: str | Path, mode: str) -> np.ndarray:
     elif mode == "gaussian":
         den = img.filter(ImageFilter.GaussianBlur(radius=1.0))
     else:
-        raise ValueError(f"?? denoise mode: {mode}")
+        raise ValueError(f"unknown denoise mode: {mode}")
     return np.asarray(den).astype(np.float32) / 255.0
 
 
@@ -99,7 +99,7 @@ def main():
         writer = csv.DictWriter(f, fieldnames=["path", "label", "group", "split"])
         writer.writeheader()
         writer.writerows(rows)
-    print(f"LNP manifest: {out_manifest}, ???: {len(rows)}")
+    print(f"LNP manifest: {out_manifest}, samples: {len(rows)}")
 
 
 if __name__ == "__main__":

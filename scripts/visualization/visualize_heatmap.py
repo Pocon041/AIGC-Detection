@@ -30,19 +30,19 @@ def build_condition_encoder(kind: str, cfg: ExperimentConfig, out_dim: int):
     if kind == "hybrid":
         enc = HybridConditionEncoder(cfg.backbone_name, pretrained=True, dino_dim=out_dim, low_dim=out_dim // 2)
         return enc, enc.out_dim
-    raise ValueError(f"?? condition encoder: {kind}")
+    raise ValueError(f"unknown condition encoder: {kind}")
 
 
 def build_residual_encoder(kind: str, cfg: ExperimentConfig, out_dim: int, lnp_checkpoint: str = "", beyond_checkpoint: str = ""):
     if kind == "lnp":
         if not lnp_checkpoint:
-            raise ValueError("checkpoint ??? lnp_checkpoint")
+            raise ValueError("missing lnp_checkpoint")
         return OnlineLNPLowLevelEncoder(lnp_checkpoint, feature_dim=out_dim, out_dim=out_dim), out_dim
     if kind == "beyond":
         if not beyond_checkpoint:
-            raise ValueError("checkpoint ??? beyond_checkpoint")
+            raise ValueError("missing beyond_checkpoint")
         return BeyondPretextLowLevelEncoder(beyond_checkpoint, feature_dim=out_dim, out_dim=out_dim), out_dim
-    raise ValueError(f"?? residual encoder: {kind}")
+    raise ValueError(f"unknown residual encoder: {kind}")
 
 
 def build_detector(kind: str, c_dim: int, r_dim: int, cfg: ExperimentConfig):
@@ -102,7 +102,7 @@ def compute_heatmap(image_path: str, ckpt_path: str, out_path: str):
     plt.tight_layout(pad=0)
     plt.savefig(out, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close()
-    print(f"淇濆瓨 heatmap: {out}")
+    print(f"saved heatmap: {out}")
 
 
 def main():

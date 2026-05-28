@@ -19,7 +19,7 @@ class ConditionalResidualDetector(nn.Module):
 
     def forward(self, condition: torch.Tensor, residual: torch.Tensor) -> torch.Tensor:
         if condition.shape[1] != residual.shape[1]:
-            raise ValueError(f"condition token 鏁板拰 residual token 鏁颁笉涓€鑷? {condition.shape}, {residual.shape}")
+            raise ValueError(f"condition token count != residual token count: {condition.shape}, {residual.shape}")
         x = torch.cat([condition, residual], dim=-1)
         h = self.trunk(x)
         return self.head(h).squeeze(-1)

@@ -72,9 +72,9 @@ class BeyondLowLevelExtractor(nn.Module):
     ):
         super().__init__()
         if arch != "vit_srm":
-            raise ValueError(f"涓嶆敮鎸佺殑璁烘枃鐗?low-level arch: {arch}")
+            raise ValueError(f"unsupported low-level arch: {arch}")
         if image_size % patch_size != 0:
-            raise ValueError("image_size 蹇呴』鑳借 patch_size 鏁撮櫎")
+            raise ValueError("image_size must be divisible by patch_size")
         self.arch = arch
         self.image_size = image_size
         self.patch_size = patch_size
@@ -126,7 +126,7 @@ class BeyondLowLevelExtractor(nn.Module):
         b, c, h, w = x.shape
         p = self.patch_size
         if h % p != 0 or w % p != 0:
-            raise ValueError(f"杈撳叆灏哄蹇呴』鑳借 patch_size 鏁撮櫎: {(h, w)}, patch_size={p}")
+            raise ValueError(f"input size must be divisible by patch_size: {(h, w)}, patch_size={p}")
         gh, gw = h // p, w // p
         patches = F.unfold(x, kernel_size=p, stride=p)
         patches = patches.transpose(1, 2).reshape(b * gh * gw, c, p, p)
@@ -165,7 +165,7 @@ class BeyondLowLevelExtractor(nn.Module):
 
 
 def make_pretext_variants(x: torch.Tensor, modes: List[str]) -> tuple[torch.Tensor, torch.Tensor]:
-    raise ValueError("璁烘枃鐗?Beyond low-level pretext 闇€瑕佷娇鐢ㄩ璁＄畻鐨?diffusion denoised variants锛岃杩愯 train_lowlevel_precomputed.py")
+    raise ValueError("paper-version Beyond low-level pretext requires precomputed diffusion-denoised variants; run train_lowlevel_precomputed.py")
 
 
 class BeyondLowLevelAdapter(nn.Module):
@@ -186,13 +186,14 @@ class BeyondLowLevelAdapter(nn.Module):
         for p in self.encoder.parameters():
             p.requires_grad_(False)
         feature_dim = int(model_config.get("feature_dim", feature_dim))
-        self.proj = nn.Sequential(
-            nn.LayerNorm(feature_dim),
-            nn.Linear(feature_dim, out_dim),
-            nn.GELU(),
-            nn.Linear(out_dim, out_dim),
-        )
-        self.out_dim = out_dim
+        if int(out_dim) != feature_dim:
+            raise ValueError(
+                "BeyondLowLevelAdapter no longer creates an untrained projection head. "
+                f"Requested out_dim={out_dim}, but checkpoint feature_dim={feature_dim}. "
+                "Use the checkpoint feature_dim or train and load an explicit projection module."
+            )
+        self.proj = nn.Identity()
+        self.out_dim = feature_dim
 
     def train(self, mode: bool = True):
         super().train(mode)

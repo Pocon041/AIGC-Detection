@@ -30,13 +30,14 @@ def run_epoch(model, loader, optimizer, device, train: bool):
     for batch in tqdm(loader, desc="train_lnp" if train else "eval_lnp"):
         x = batch["image"].to(device, non_blocking=True)
         y = batch["label"].to(device, non_blocking=True)
-        out = model(x)
-        logits = out["logits"]
-        loss = F.cross_entropy(logits, y)
-        if train:
-            optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+        with torch.set_grad_enabled(train):
+            out = model(x)
+            logits = out["logits"]
+            loss = F.cross_entropy(logits, y)
+            if train:
+                optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                optimizer.step()
         prob_fake = torch.softmax(logits, dim=1)[:, 1]
         labels_all.append(y.detach().cpu().numpy())
         scores_all.append(prob_fake.detach().cpu().numpy())
@@ -95,7 +96,7 @@ def main():
                 "best_val": val_metrics,
             }, out_path)
             save_json({"history": history, "best": row}, out_path.with_suffix(".json"))
-    print(f"?? val AUROC: {best:.6f}, checkpoint: {out_path}")
+    print(f"best val AUROC: {best:.6f}, checkpoint: {out_path}")
 
 
 if __name__ == "__main__":

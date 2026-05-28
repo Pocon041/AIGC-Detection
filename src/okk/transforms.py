@@ -86,7 +86,7 @@ def apply_tensor_perturbation(x_norm: torch.Tensor, mode: str) -> torch.Tensor:
     elif mode == "identity":
         pass
     else:
-        raise ValueError(f"鏈煡鎵板姩绫诲瀷: {mode}")
+        raise ValueError(f"unknown perturbation mode: {mode}")
     return normalize_tensor(x)
 
 
