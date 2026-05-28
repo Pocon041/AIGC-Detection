@@ -1,0 +1,71 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Editor and OS files
+.idea/
+.vscode/
+*.code-workspace
+.DS_Store
+Thumbs.db
+
+# Generated experiment artifacts
+/cache/
+/checkpoints/
+/outputs/
+/runs/
+/wandb/
+/artifacts/
+/logs/
+/tmp/
+/temp/
+
+# Local datasets and generated manifests
+/data/
+/datasets/
+/raw_data/
+/autodl-tmp/
+manifests/*.csv
+manifests/*.json
+manifests/*.jsonl
+
+# Local paper copies
+references/*.pdf
+references/*.PDF
+
+# Model and feature files
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+*.npz
+*.npy
+*.joblib
+*.pkl
+*.pickle
+*.h5
+*.hdf5
+
+# Large media / generated diagnostics
+*.log
+*.out
+*.err
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.bmp
+*.tif
+*.tiff
