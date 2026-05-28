@@ -212,6 +212,7 @@ def main():
         "effective_k_values": effective_k_values,
         "proxy_columns": proxy_columns,
         "proxy_frame": scalar_string(data, "proxy_frame", "legacy_unknown"),
+        "transform_protocol": scalar_string(data, "transform_protocol", "legacy_unknown"),
         "condition_distance": {
             "semantic_weight": float(args.semantic_weight),
             "proxy_weight": float(args.proxy_weight),

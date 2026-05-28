@@ -20,6 +20,7 @@ from okk.beyond_lowlevel import BeyondLowLevelAdapter
 from okk.ccfled import compute_proxy_features, pool_tokens, proxy_names, string_array
 from okk.config import ExperimentConfig, ensure_project_dirs
 from okk.dataset import ImageManifestDataset
+from okk.transforms import transform_protocol_name
 from okk.utils import configure_torch, get_device, set_seed
 
 
@@ -75,6 +76,8 @@ def extract_cache(args, cfg: ExperimentConfig):
         splits.extend(batch["split"])
 
     label_array = np.concatenate(labels, axis=0)
+    transform_protocol = transform_protocol_name(args.image_size)
+    proxy_frame = f"preprocessed_{transform_protocol}_imagenet_denormalized"
     return {
         "z_f": np.concatenate(z_f_all, axis=0),
         "z_s": np.concatenate(z_s_all, axis=0),
@@ -87,7 +90,8 @@ def extract_cache(args, cfg: ExperimentConfig):
         "operations": string_array(operations),
         "splits": string_array(splits),
         "proxy_names": string_array(proxy_names(include_pipeline=True)),
-        "proxy_frame": f"preprocessed_tensor_{args.image_size}_imagenet_denormalized",
+        "proxy_frame": proxy_frame,
+        "transform_protocol": transform_protocol,
         "lowlevel_projection": "none",
         "config_json": json.dumps(
             {
@@ -100,7 +104,8 @@ def extract_cache(args, cfg: ExperimentConfig):
                 "semantic_backbone": args.semantic_backbone,
                 "pooling": args.pooling,
                 "topk_ratio": args.topk_ratio,
-                "proxy_frame": f"preprocessed_tensor_{args.image_size}_imagenet_denormalized",
+                "transform_protocol": transform_protocol,
+                "proxy_frame": proxy_frame,
             },
             ensure_ascii=False,
         ),

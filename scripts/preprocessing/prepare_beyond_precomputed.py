@@ -17,6 +17,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from okk.dataset import read_manifest
+from okk.transforms import build_plain_tensor_transform, transform_protocol_name
 from okk.utils import configure_torch, get_device, list_images, set_seed
 
 
@@ -30,11 +31,7 @@ def require_diffusers():
 
 
 def pil_to_tensor(image: Image.Image, image_size: int):
-    transform = transforms.Compose([
-        transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC),
-        transforms.ToTensor(),
-    ])
-    return transform(image.convert("RGB"))
+    return build_plain_tensor_transform(image_size=image_size, train=False)(image.convert("RGB"))
 
 
 def tensor_to_pil(x: torch.Tensor):
@@ -177,7 +174,7 @@ def main():
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
-    print(f"写入 precomputed manifest: {out_manifest}, 样本数: {len(rows)}")
+    print(f"wrote precomputed manifest: {out_manifest}, samples: {len(rows)}, transform={transform_protocol_name(args.image_size)}")
 
 
 if __name__ == "__main__":

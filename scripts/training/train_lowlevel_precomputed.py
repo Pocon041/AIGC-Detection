@@ -22,12 +22,12 @@ from tqdm import tqdm
 from okk.beyond_lowlevel import BeyondLowLevelExtractor
 from okk.config import ExperimentConfig, ensure_project_dirs
 from okk.metrics import compute_binary_metrics, format_binary_metrics
-from okk.transforms import IMAGENET_MEAN, IMAGENET_STD
+from okk.transforms import IMAGENET_MEAN, IMAGENET_STD, SynchronizedImageTransform, transform_protocol_name
 from okk.utils import configure_torch, get_device, save_json, set_seed
 
 
 class PrecomputedDiffusionPretextDataset(Dataset):
-    def __init__(self, manifest: str | Path, split: str | None, image_size: int):
+    def __init__(self, manifest: str | Path, split: str | None, image_size: int, train: bool = False):
         self.samples = []
         with Path(manifest).open("r", encoding="utf-8-sig", newline="") as f:
             reader = csv.DictReader(f)
@@ -46,10 +46,7 @@ class PrecomputedDiffusionPretextDataset(Dataset):
         if not self.samples:
             raise ValueError(f"precomputed manifest 没有样本: {manifest}, split={split}")
         self.num_classes = 1 + len(self.variant_cols)
-        self.image_transform = transforms.Compose([
-            transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC),
-            transforms.ToTensor(),
-        ])
+        self.image_transform = SynchronizedImageTransform(image_size=image_size, train=train, normalize=False)
         self.normalize = transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)
 
     def __len__(self):
@@ -59,10 +56,13 @@ class PrecomputedDiffusionPretextDataset(Dataset):
         images = []
         labels = []
         mae_targets = []
-        original_path = self.samples[index][0][0]
-        original = self.image_transform(Image.open(original_path).convert("RGB"))
-        for path, label in self.samples[index]:
-            image = self.image_transform(Image.open(path).convert("RGB"))
+        pil_images = []
+        for path, _ in self.samples[index]:
+            with Image.open(path) as image:
+                pil_images.append(image.convert("RGB"))
+        plain_images = self.image_transform(pil_images)
+        original = plain_images[0]
+        for image, (_, label) in zip(plain_images, self.samples[index]):
             images.append(self.normalize(image))
             labels.append(label)
             mae_targets.append(torch.mean(torch.abs(image - original)) * 255.0)
@@ -139,9 +139,9 @@ def main():
     configure_torch(cfg.use_tf32)
     device = get_device(cfg.device)
 
-    train_set = PrecomputedDiffusionPretextDataset(args.manifest, args.train_split, cfg.image_size)
+    train_set = PrecomputedDiffusionPretextDataset(args.manifest, args.train_split, cfg.image_size, train=True)
     val_manifest = args.val_manifest if args.val_manifest else args.manifest
-    val_set = PrecomputedDiffusionPretextDataset(val_manifest, args.val_split, cfg.image_size)
+    val_set = PrecomputedDiffusionPretextDataset(val_manifest, args.val_split, cfg.image_size, train=False)
     train_loader = DataLoader(train_set, batch_size=args.batch_size, shuffle=True, num_workers=cfg.num_workers, pin_memory=True, collate_fn=collate_precomputed)
     val_loader = DataLoader(val_set, batch_size=args.batch_size, shuffle=False, num_workers=cfg.num_workers, pin_memory=True, collate_fn=collate_precomputed)
 
@@ -181,6 +181,7 @@ def main():
                 "feature_dim": args.feature_dim,
                 "model_config": model.model_config(),
                 "pretext_modes": ["original"] + train_set.variant_cols,
+                "transform_protocol": transform_protocol_name(cfg.image_size),
                 "lambda_reg": args.lambda_reg,
                 "best_epoch": epoch,
                 "best_val": val_metrics,

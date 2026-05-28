@@ -25,6 +25,17 @@ pip install -e .
 
 AutoDL 单张 RTX 5090 上建议先用 `batch_size=32` 缓存特征，显存确认充足后再调到 `64`。
 
+## 输入协议
+
+主协议采用保持长宽比的 ImageNet-style resize/crop：
+
+```text
+train: Resize(256) -> RandomCrop(224) -> RandomHorizontalFlip -> ToTensor -> Normalize
+eval:  Resize(256) -> CenterCrop(224) -> ToTensor -> Normalize
+```
+
+这里的 `Resize(256)` 是短边缩放到 256，不是 `Resize((256, 256))`。Paired real/fake 和 precomputed original/variant 会共享同一次 crop/flip。
+
 ## CC-FLED Phase 1
 
 Phase 1 只回答一个核心问题：

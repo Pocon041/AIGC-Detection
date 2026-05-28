@@ -10,6 +10,8 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
+from okk.transforms import default_resize_size
+
 
 @dataclass
 class LNPItem:
@@ -41,9 +43,12 @@ def read_lnp_manifest(path: str | Path, split: Optional[str] = None) -> List[LNP
 class LNPDataset(Dataset):
     def __init__(self, manifest_path: str | Path, split: Optional[str] = None, image_size: int = 224, train: bool = False):
         self.items = read_lnp_manifest(manifest_path, split=split)
-        ops = [transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC)]
+        ops = [transforms.Resize(default_resize_size(image_size), interpolation=transforms.InterpolationMode.BICUBIC)]
         if train:
+            ops.append(transforms.RandomCrop(image_size))
             ops.append(transforms.RandomHorizontalFlip(p=0.5))
+        else:
+            ops.append(transforms.CenterCrop(image_size))
         ops.extend([
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),

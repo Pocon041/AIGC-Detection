@@ -109,6 +109,7 @@ def main():
         "split_counts": count_values(splits),
         "flag_threshold": float(args.flag_threshold),
         "proxy_frame": scalar_string(data, "proxy_frame", "legacy_unknown"),
+        "transform_protocol": scalar_string(data, "transform_protocol", "legacy_unknown"),
         "interpretation": (
             "Proxy variables are operational conditions, not complexity ground truth. "
             "Label/generator/group/operation flags are computed on audit_split only; "

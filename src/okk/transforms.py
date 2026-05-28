@@ -7,32 +7,88 @@ import torch
 import torch.nn.functional as F
 from PIL import Image
 from torchvision import transforms
+from torchvision.transforms import functional as TF
 
 
 IMAGENET_MEAN = (0.485, 0.456, 0.406)
 IMAGENET_STD = (0.229, 0.224, 0.225)
+DEFAULT_CROP_SIZE = 224
+DEFAULT_RESIZE_SIZE = 256
 
 
-def build_image_transform(image_size: int = 224, train: bool = False) -> Callable:
+def default_resize_size(image_size: int = DEFAULT_CROP_SIZE) -> int:
+    return int(round(int(image_size) * DEFAULT_RESIZE_SIZE / DEFAULT_CROP_SIZE))
+
+
+def transform_protocol_name(image_size: int = DEFAULT_CROP_SIZE, resize_size: int | None = None) -> str:
+    resize = default_resize_size(image_size) if resize_size is None else int(resize_size)
+    return f"resize_short{resize}_crop{int(image_size)}"
+
+
+def build_image_transform(image_size: int = DEFAULT_CROP_SIZE, train: bool = False, resize_size: int | None = None) -> Callable:
+    resize = default_resize_size(image_size) if resize_size is None else int(resize_size)
     if train:
         return transforms.Compose([
-            transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.Resize(resize, interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.RandomCrop(image_size),
             transforms.RandomHorizontalFlip(p=0.5),
             transforms.ToTensor(),
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
         ])
     return transforms.Compose([
-        transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.Resize(resize, interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.CenterCrop(image_size),
         transforms.ToTensor(),
         transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ])
 
 
-def build_plain_tensor_transform(image_size: int = 224) -> Callable:
+def build_plain_tensor_transform(image_size: int = DEFAULT_CROP_SIZE, train: bool = False, resize_size: int | None = None) -> Callable:
+    resize = default_resize_size(image_size) if resize_size is None else int(resize_size)
+    crop = transforms.RandomCrop(image_size) if train else transforms.CenterCrop(image_size)
     return transforms.Compose([
-        transforms.Resize((image_size, image_size), interpolation=transforms.InterpolationMode.BICUBIC),
+        transforms.Resize(resize, interpolation=transforms.InterpolationMode.BICUBIC),
+        crop,
         transforms.ToTensor(),
     ])
+
+
+class SynchronizedImageTransform:
+    def __init__(
+        self,
+        image_size: int = DEFAULT_CROP_SIZE,
+        train: bool = False,
+        normalize: bool = True,
+        resize_size: int | None = None,
+    ):
+        self.image_size = int(image_size)
+        self.resize_size = default_resize_size(image_size) if resize_size is None else int(resize_size)
+        self.train = bool(train)
+        self.normalize = bool(normalize)
+
+    def __call__(self, images: list[Image.Image]) -> list[torch.Tensor]:
+        if not images:
+            return []
+        resized = [
+            TF.resize(image.convert("RGB"), self.resize_size, interpolation=transforms.InterpolationMode.BICUBIC)
+            for image in images
+        ]
+        if self.train:
+            min_width = min(image.width for image in resized)
+            min_height = min(image.height for image in resized)
+            if min_width < self.image_size or min_height < self.image_size:
+                raise ValueError(f"resized image is smaller than crop size: min={(min_width, min_height)}, crop={self.image_size}")
+            top = int(torch.randint(0, min_height - self.image_size + 1, (1,)).item())
+            left = int(torch.randint(0, min_width - self.image_size + 1, (1,)).item())
+            cropped = [TF.crop(image, top, left, self.image_size, self.image_size) for image in resized]
+            if bool(torch.rand(()) < 0.5):
+                cropped = [TF.hflip(image) for image in cropped]
+        else:
+            cropped = [TF.center_crop(image, [self.image_size, self.image_size]) for image in resized]
+        tensors = [TF.to_tensor(image) for image in cropped]
+        if self.normalize:
+            tensors = [TF.normalize(tensor, IMAGENET_MEAN, IMAGENET_STD) for tensor in tensors]
+        return tensors
 
 
 def normalize_tensor(x: torch.Tensor) -> torch.Tensor:

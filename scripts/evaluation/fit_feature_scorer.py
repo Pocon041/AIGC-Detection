@@ -174,6 +174,7 @@ def main():
         "zf_mean": zf_mean,
         "zf_std": zf_std,
         "proxy_frame": scalar_string(data, "proxy_frame", "legacy_unknown"),
+        "transform_protocol": scalar_string(data, "transform_protocol", "legacy_unknown"),
     }
 
     if args.scorer == "global_diag":
@@ -273,6 +274,7 @@ def main():
         "bank_count": int(bank_mask.sum()),
         "eval_count": int(eval_mask.sum()),
         "proxy_frame": scalar_string(data, "proxy_frame", "legacy_unknown"),
+        "transform_protocol": scalar_string(data, "transform_protocol", "legacy_unknown"),
         "threshold": threshold,
         "threshold_percentile": float(args.threshold_percentile),
         "score_direction": "higher suspicious score means more likely fake; label=1 means fake",

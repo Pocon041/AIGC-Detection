@@ -9,7 +9,7 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
-from okk.transforms import build_image_transform
+from okk.transforms import SynchronizedImageTransform, build_image_transform
 
 
 @dataclass
@@ -96,17 +96,18 @@ class PairedManifestDataset(Dataset):
         self.pairs = [(pid, pair["real"], pair["fake"]) for pid, pair in pairs.items() if "real" in pair and "fake" in pair]
         if not self.pairs:
             raise ValueError("paired manifest has no complete real/fake pairs; check pair_id and label")
-        self.transform = build_image_transform(image_size=image_size, train=False)
+        self.transform = SynchronizedImageTransform(image_size=image_size, train=train, normalize=True)
 
     def __len__(self) -> int:
         return len(self.pairs)
 
     def __getitem__(self, index: int) -> Dict:
         pair_id, real_item, fake_item = self.pairs[index]
-        real = Image.open(real_item.path).convert("RGB")
-        fake = Image.open(fake_item.path).convert("RGB")
-        real = self.transform(real)
-        fake = self.transform(fake)
+        with Image.open(real_item.path) as image:
+            real_pil = image.convert("RGB")
+        with Image.open(fake_item.path) as image:
+            fake_pil = image.convert("RGB")
+        real, fake = self.transform([real_pil, fake_pil])
         return {
             "real_image": real,
             "fake_image": fake,
